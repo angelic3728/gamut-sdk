@@ -337,3 +337,4 @@ export const fromWeiVal = (provider, val) => {
   let web3 = new Web3(provider);
   return web3.utils.fromWei(val);
 };
+

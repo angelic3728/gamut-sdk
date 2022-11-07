@@ -1,7 +1,7 @@
 {
   "name": "gamut-sdk",
   "version": "1.0.1",
-  "description": "it's the sdk for gamut dex.",
+  "description": "it's the sdk for gamut dex. It's working as gamut sdk web3 integration part.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
