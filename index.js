@@ -6,6 +6,7 @@ import poolABI from "./assets/abi/pool";
 import routerABI from "./assets/abi/router";
 import faucetABI from "./assets/abi/faucet";
 
+// web3 integration part
 export const getTokenBalance = async (provider, tokenAddr, account) => {
   const abi = erc20ABI[0];
   let web3 = new Web3(provider);
@@ -165,7 +166,6 @@ export const batchSwapTokens = async (
       web3.utils.toWei("0"),
       web3.utils.toWei("0"),
     ];
-
   if (middleTokens) {
     const contract = new web3.eth.Contract(abi, contractAddr);
     try {
@@ -338,3 +338,226 @@ export const fromWeiVal = (provider, val) => {
   return web3.utils.fromWei(val);
 };
 
+// find router part
+
+export const calculateSwap = async (inToken, poolData, input) => {
+    let ammount = input * 10 ** 18;
+    let balance_from;
+    let balance_to;
+    let weight_from;
+    let weight_to;
+
+    if (inToken.toLowerCase() == poolData.tokens[0].toLowerCase()) {
+      balance_from = poolData.balances[0];
+      balance_to = poolData.balances[1];
+      weight_from = poolData.weights[0];
+      weight_to = poolData.weights[1];
+    } else {
+      balance_from = poolData.balances[1];
+      balance_to = poolData.balances[0];
+      weight_from = poolData.weights[1];
+      weight_to = poolData.weights[0];
+    }
+
+    let bIn = ammount / 10 ** 18;
+    let pbA = balance_to / 10 ** 18;
+    let pbB = balance_from / 10 ** 18;
+    let wA = weight_to / 10 ** 18;
+    let wB = weight_from / 10 ** 18;
+
+    let exp =
+      (wB - (wB * (1 - pbB / (pbB + bIn))) / (1 + pbB / (pbB + bIn))) /
+      (wA + (wB * (1 - pbB / (pbB + bIn))) / (1 + pbB / (pbB + bIn)));
+    let bOut = pbA * (1 - (pbB / (pbB + bIn)) ** exp);
+    return bOut;
+  };
+
+export const calcOutput = async (
+  middleTokens,
+  provider,
+  val,
+  inSToken,
+  outSToken,
+  contractAddresses,
+  selected_chain,
+  swapFee
+) => {
+  try {
+    if (middleTokens.length === 1) {
+      const poolAddressA = await getPoolAddress(
+        provider,
+        inSToken["address"],
+        middleTokens[0]["address"],
+        contractAddresses[selected_chain]["hedgeFactory"]
+      );
+      const poolDataA = await getPoolData(
+        provider,
+        poolAddressA
+      );
+      const poolAddressB = await getPoolAddress(
+        provider,
+        middleTokens[0]["address"],
+        outSToken["address"],
+        contractAddresses[selected_chain]["hedgeFactory"]
+      );
+      const poolDataB = await getPoolData(
+        provider,
+        poolAddressB
+      );
+      const middleOutput = await calculateSwap(
+        inSToken["address"],
+        poolDataA,
+        val * (1 - swapFee)
+      );
+      const output = await calculateSwap(
+        middleTokens[0]["address"],
+        poolDataB,
+        middleOutput * (1 - swapFee)
+      );
+      return output;
+    } else {
+      const poolAddressA = await getPoolAddress(
+        provider,
+        inSToken["address"],
+        middleTokens[0]["address"],
+        contractAddresses[selected_chain]["hedgeFactory"]
+      );
+      const poolDataA = await getPoolData(
+        provider,
+        poolAddressA
+      );
+      const poolAddressB = await getPoolAddress(
+        provider,
+        middleTokens[0]["address"],
+        middleTokens[1]["address"],
+        contractAddresses[selected_chain]["hedgeFactory"]
+      );
+      const poolDataB = await getPoolData(
+        provider,
+        poolAddressB
+      );
+      const poolAddressC = await getPoolAddress(
+        provider,
+        middleTokens[1]["address"],
+        outSToken["address"],
+        contractAddresses[selected_chain]['pool']
+      );
+      const poolDataC = await getPoolData(
+        provider,
+        poolAddressC
+      );
+      const middleOutput1 = await calculateSwap(
+        inSToken["address"],
+        poolDataA,
+        val * (1 - swapFee)
+      );
+      const middleOutput2 = await calculateSwap(
+        middleTokens[0]["address"],
+        poolDataB,
+        middleOutput1 * (1 - swapFee)
+      );
+      const output = await calculateSwap(
+        middleTokens[1]["address"],
+        poolDataC,
+        middleOutput2 * (1 - swapFee)
+      );
+      return output;
+    }
+  } catch (error) {
+    return -1;
+  }
+};
+
+export const getMiddleToken = async (inValue, inSToken, outSToken, uniList, provider, contractAddresses, selected_chain, swapFee) => {
+  const availableLists = uniList[selected_chain].filter((item) => {
+    return (
+      item["address"] !== inSToken["address"] &&
+      item["address"] !== outSToken["address"]
+    );
+  });
+
+  let suitableRouter = [];
+  // const provider = await connector.getProvider();
+  for (let i = 0; i < availableLists.length; i++) {
+    const calculatedOutput = await calcOutput(
+      [availableLists[i]],
+      provider,
+      inValue,
+      inSToken,
+      outSToken,
+      contractAddresses,
+      selected_chain,
+      swapFee
+    );
+    if (suitableRouter.length === 0) {
+      if (Number(calculatedOutput) > 0) {
+        suitableRouter[0] = [availableLists[i]];
+        suitableRouter[1] = calculatedOutput;
+      }
+    } else {
+      if (Number(calculatedOutput) > Number(suitableRouter[1])) {
+        suitableRouter[0] = [availableLists[i]];
+        suitableRouter[1] = calculatedOutput;
+      }
+    }
+  }
+
+  const allPairs = pairs(availableLists);
+  for (let i = 0; i < allPairs.length; i++) {
+    const calculatedOutput = await calcOutput(
+      allPairs[i],
+      provider,
+      inValue,
+      inSToken,
+      outSToken,
+      contractAddresses,
+      selected_chain,
+      swapFee
+    );
+    if (suitableRouter.length === 0) {
+      if (Number(calculatedOutput) > 0) {
+        suitableRouter[0] = allPairs[i];
+        suitableRouter[1] = calculatedOutput;
+      }
+    } else {
+      if (Number(calculatedOutput) > Number(suitableRouter[1])) {
+        suitableRouter[0] = allPairs[i];
+        suitableRouter[1] = calculatedOutput;
+      }
+    }
+  }
+
+  try {
+    const poolAddress = await getPoolAddress(
+      provider,
+      inSToken["address"],
+      outSToken["address"],
+      contractAddresses[selected_chain]["hedgeFactory"]
+    );
+    const poolData = await getPoolData(provider, poolAddress);
+    const result = await calculateSwap(
+      inSToken["address"],
+      poolData,
+      inValue
+    );
+    if (suitableRouter.length !== 0) {
+      if (Number(result) > Number(suitableRouter[1])) {
+        return null;
+      } else return suitableRouter[0];
+    } else return null;
+  } catch (error) {
+    if (suitableRouter.length !== 0) {
+      return suitableRouter[0];
+    } else {
+      return null;
+    }
+  }
+};
+
+export const pairs = (arr) => {
+  return arr.flatMap((x) => {
+    return arr.flatMap((y) => {
+      return x["address"] != y["address"] ? [[x, y]] : [];
+    });
+  });
+};
