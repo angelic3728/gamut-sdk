@@ -272,10 +272,10 @@ export const getPoolSupply = async (provider, poolAddr) => {
   return web3.utils.fromWei(result);
 };
 
-export const getSwapFeePercent = async (provider, poolAddr, contractAddr) => {
+export const getSwapFeePercent = async (provider, poolAddr) => {
   const abi = poolABI[0];
   let web3 = new Web3(provider);
-  let contract = new web3.eth.Contract(abi, contractAddr);
+  let contract = new web3.eth.Contract(abi);
   contract.options.address = poolAddr;
   const result = await contract.methods["getSwapFeePercentage"]().call();
   return web3.utils.fromWei(result) * 100;
@@ -316,6 +316,13 @@ export const removePool = async (
   }
 };
 
+export const fromWeiVal = (provider, val) => {
+  let web3 = new Web3(provider);
+  return web3.utils.fromWei(val);
+};
+
+// getting faucet tokens part
+
 export const requestToken = async (account, provider, faucetAddr) => {
   const abi = faucetABI[0];
   let web3 = new Web3(provider);
@@ -331,11 +338,6 @@ export const allowedToWithdraw = async (account, provider, faucetAddr) => {
   let contract = new web3.eth.Contract(abi, faucetAddr);
   let allowed = contract.methods["allowedToWithdraw"](account).call();
   return allowed;
-};
-
-export const fromWeiVal = (provider, val) => {
-  let web3 = new Web3(provider);
-  return web3.utils.fromWei(val);
 };
 
 // find router part
@@ -378,8 +380,7 @@ export const calcOutput = async (
   val,
   inSToken,
   outSToken,
-  contractAddresses,
-  selected_chain,
+  factoryContractAddr,
   swapFee
 ) => {
   try {
@@ -388,7 +389,7 @@ export const calcOutput = async (
         provider,
         inSToken["address"],
         middleTokens[0]["address"],
-        contractAddresses[selected_chain]["hedgeFactory"]
+        factoryContractAddr
       );
       const poolDataA = await getPoolData(
         provider,
@@ -398,7 +399,7 @@ export const calcOutput = async (
         provider,
         middleTokens[0]["address"],
         outSToken["address"],
-        contractAddresses[selected_chain]["hedgeFactory"]
+        factoryContractAddr
       );
       const poolDataB = await getPoolData(
         provider,
@@ -420,7 +421,7 @@ export const calcOutput = async (
         provider,
         inSToken["address"],
         middleTokens[0]["address"],
-        contractAddresses[selected_chain]["hedgeFactory"]
+        factoryContractAddr
       );
       const poolDataA = await getPoolData(
         provider,
@@ -430,7 +431,7 @@ export const calcOutput = async (
         provider,
         middleTokens[0]["address"],
         middleTokens[1]["address"],
-        contractAddresses[selected_chain]["hedgeFactory"]
+        factoryContractAddr
       );
       const poolDataB = await getPoolData(
         provider,
@@ -468,8 +469,8 @@ export const calcOutput = async (
   }
 };
 
-export const getMiddleToken = async (inValue, inSToken, outSToken, uniList, provider, contractAddresses, selected_chain, swapFee) => {
-  const availableLists = uniList[selected_chain].filter((item) => {
+export const getMiddleToken = async (inValue, inSToken, outSToken, tokenList, provider, factoryContractAddr, swapFee) => {
+  const availableLists = tokenList.filter((item) => {
     return (
       item["address"] !== inSToken["address"] &&
       item["address"] !== outSToken["address"]
@@ -485,8 +486,7 @@ export const getMiddleToken = async (inValue, inSToken, outSToken, uniList, prov
       inValue,
       inSToken,
       outSToken,
-      contractAddresses,
-      selected_chain,
+      factoryContractAddr,
       swapFee
     );
     if (suitableRouter.length === 0) {
@@ -502,7 +502,7 @@ export const getMiddleToken = async (inValue, inSToken, outSToken, uniList, prov
     }
   }
 
-  const allPairs = pairs(availableLists);
+  const allPairs = getPairs(availableLists);
   for (let i = 0; i < allPairs.length; i++) {
     const calculatedOutput = await calcOutput(
       allPairs[i],
@@ -510,7 +510,7 @@ export const getMiddleToken = async (inValue, inSToken, outSToken, uniList, prov
       inValue,
       inSToken,
       outSToken,
-      contractAddresses,
+      factoryContractAddr,
       selected_chain,
       swapFee
     );
@@ -532,7 +532,7 @@ export const getMiddleToken = async (inValue, inSToken, outSToken, uniList, prov
       provider,
       inSToken["address"],
       outSToken["address"],
-      contractAddresses[selected_chain]["hedgeFactory"]
+      factoryContractAddr
     );
     const poolData = await getPoolData(provider, poolAddress);
     const result = await calculateSwap(
@@ -554,7 +554,7 @@ export const getMiddleToken = async (inValue, inSToken, outSToken, uniList, prov
   }
 };
 
-export const pairs = (arr) => {
+export const getPairs = (arr) => {
   return arr.flatMap((x) => {
     return arr.flatMap((y) => {
       return x["address"] != y["address"] ? [[x, y]] : [];
